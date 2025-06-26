@@ -979,17 +979,142 @@ PURE ENGLISH OUTPUT:"""
             json.dump(results, f, ensure_ascii=False, indent=2)
         
         logger.info(f"結果を保存しました: {output_file}")
+    
+    def save_individual_results(self, results: List[Dict], output_dir: str = "individual_results"):
+        """
+        各PDFの処理結果を個別のJSONファイルとして保存
+        
+        Args:
+            results: 処理結果のリスト
+            output_dir: 出力ディレクトリ
+        """
+        import json
+        import os
+        from pathlib import Path
+        
+        # 出力ディレクトリを作成
+        os.makedirs(output_dir, exist_ok=True)
+        
+        for result in results:
+            if 'extracted_data' in result:
+                # 統合結果の場合
+                for pdf_data in result['extracted_data']:
+                    filename = self._get_safe_filename(pdf_data['source_file'])
+                    output_path = os.path.join(output_dir, f"{filename}.json")
+                    
+                    # 個別ファイル用のデータ構造
+                    individual_data = {
+                        "file_info": {
+                            "source_file": pdf_data['source_file'],
+                            "processed_pages": pdf_data.get('pages_processed', 0),
+                            "ocr_confidence": pdf_data.get('ocr_confidence', 0.0),
+                            "processing_timestamp": self._get_timestamp()
+                        },
+                        "extraction_results": {
+                            "total_words": pdf_data.get('word_count', 0),
+                            "unique_words": len(set(pdf_data.get('extracted_words', []))),
+                            "english_passages_count": len(pdf_data.get('english_passages', []))
+                        },
+                        "content": {
+                            "english_passages": pdf_data.get('english_passages', []),
+                            "extracted_words": sorted(list(set(pdf_data.get('extracted_words', []))))
+                        }
+                    }
+                    
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        json.dump(individual_data, f, ensure_ascii=False, indent=2)
+                    
+                    logger.info(f"個別結果を保存: {output_path}")
+            else:
+                # 単一結果の場合
+                filename = self._get_safe_filename(result['source_file'])
+                output_path = os.path.join(output_dir, f"{filename}.json")
+                
+                individual_data = {
+                    "file_info": {
+                        "source_file": result['source_file'],
+                        "processed_pages": result.get('pages_processed', 0),
+                        "ocr_confidence": result.get('processing_stats', {}).get('average_confidence', 0.0),
+                        "processing_timestamp": self._get_timestamp()
+                    },
+                    "extraction_results": {
+                        "total_words": len(result.get('extracted_words', [])),
+                        "unique_words": len(set(result.get('extracted_words', []))),
+                        "english_passages_count": len(result.get('pure_english_text', []))
+                    },
+                    "content": {
+                        "english_passages": result.get('pure_english_text', []),
+                        "extracted_words": sorted(list(set(result.get('extracted_words', []))))
+                    }
+                }
+                
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(individual_data, f, ensure_ascii=False, indent=2)
+                
+                logger.info(f"個別結果を保存: {output_path}")
+    
+    def _get_safe_filename(self, filename: str) -> str:
+        """
+        ファイル名を安全な形式に変換
+        
+        Args:
+            filename: 元のファイル名
+            
+        Returns:
+            安全なファイル名
+        """
+        import re
+        
+        # 拡張子を除去
+        from pathlib import Path
+        name = Path(filename).stem
+        
+        # 日本語文字をローマ字に変換（簡易版）
+        name = re.sub(r'[^\w\-_\.]', '_', name)
+        
+        # 連続するアンダースコアを単一に
+        name = re.sub(r'_+', '_', name)
+        
+        # 先頭・末尾のアンダースコアを除去
+        name = name.strip('_')
+        
+        return name if name else "unnamed"
+    
+    def _get_timestamp(self) -> str:
+        """
+        現在のタイムスタンプを取得
+        
+        Returns:
+            ISO形式のタイムスタンプ
+        """
+        from datetime import datetime
+        return datetime.now().isoformat()
 
 if __name__ == "__main__":
+    import argparse
+    
+    # コマンドライン引数の設定
+    parser = argparse.ArgumentParser(description='PDF英語テキスト抽出ツール')
+    parser.add_argument('--pdf-folder', default='./PDF', help='PDFファイルが格納されているフォルダパス')
+    parser.add_argument('--enhancement-level', choices=['light', 'standard', 'aggressive'], 
+                       default='aggressive', help='OCR処理レベル')
+    parser.add_argument('--output-format', choices=['combined', 'individual', 'both'], 
+                       default='combined', help='出力形式: combined=統合ファイル, individual=個別ファイル, both=両方')
+    parser.add_argument('--output-dir', default='individual_results', 
+                       help='個別ファイル出力時のディレクトリ名')
+    
+    args = parser.parse_args()
+    
     # 使用例（強化版）
     extractor = PDFTextExtractor()
     
     # PDFフォルダを処理（強化レベルを選択可能）
-    pdf_folder = "./PDF"
-    enhancement_level = "aggressive"  # "light", "standard", "aggressive"
+    pdf_folder = args.pdf_folder
+    enhancement_level = args.enhancement_level
     
     print(f"OCR精度向上機能を使用してPDF処理を開始...")
     print(f"処理レベル: {enhancement_level}")
+    print(f"出力形式: {args.output_format}")
     print(f"主な改善点:")
     print(f"- 6種類の高度な画像前処理")
     print(f"- 4つのOCR設定による複数実行")
@@ -1037,6 +1162,12 @@ if __name__ == "__main__":
             stats = result['processing_stats']
             passage_count = len(result.get('pure_english_text', []))
             print(f"{pdf_name}: {len(result['extracted_words'])}単語, {passage_count}文章, 信頼度: {stats['average_confidence']:.3f}")
+        
+        # 出力形式に応じてファイル保存
+        if args.output_format in ['individual', 'both']:
+            print(f"\n=== 個別ファイル出力 ===")
+            extractor.save_individual_results(results, args.output_dir)
+            print(f"個別JSONファイルを {args.output_dir}/ に保存しました")
         
         # 純粋英語文章のサンプル表示
         print(f"\n=== 純粋英語文章サンプル ===")
