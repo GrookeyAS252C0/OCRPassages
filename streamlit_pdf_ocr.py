@@ -71,7 +71,7 @@ st.sidebar.title("⚙️ 設定")
 enhancement_level = st.sidebar.selectbox(
     "OCR処理レベル",
     ["light", "standard", "aggressive"],
-    index=1,
+    index=2,  # aggressive をデフォルトに
     help="処理レベルが高いほど精度向上しますが、時間がかかります"
 )
 
@@ -142,24 +142,54 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
         
         results = []
         
-        # プログレスバー表示
+        # 全体プログレスバー
         if show_progress:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            st.markdown("### 📊 処理進捗")
+            overall_progress = st.progress(0)
+            overall_status = st.empty()
+            
+            # 各ファイルの詳細進捗用のコンテナ
+            progress_container = st.container()
         
         for i, uploaded_file in enumerate(uploaded_files):
             if show_progress:
-                status_text.text(f"処理中: {uploaded_file.name}")
-                progress_bar.progress((i) / len(uploaded_files))
+                # 全体進捗更新
+                overall_progress.progress(i / len(uploaded_files))
+                overall_status.text(f"処理中: {i+1}/{len(uploaded_files)} - {uploaded_file.name}")
+                
+                # 個別ファイル進捗表示
+                with progress_container:
+                    file_expander = st.expander(f"📄 {uploaded_file.name} - 処理中...", expanded=True)
+                    with file_expander:
+                        file_progress = st.progress(0)
+                        file_status = st.empty()
+                        step_status = st.empty()
+                        
+                        # ステップ表示
+                        file_status.text("🔄 PDFファイル読み込み中...")
+                        file_progress.progress(0.1)
             
             # 一時ファイルに保存
             with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
                 temp_file.write(uploaded_file.read())
                 temp_file_path = temp_file.name
             
+            if show_progress:
+                file_status.text("💾 ファイル保存完了")
+                file_progress.progress(0.2)
+            
             try:
+                if show_progress:
+                    file_status.text("🔍 OCR処理開始...")
+                    file_progress.progress(0.3)
+                    step_status.text(f"処理レベル: {enhancement_level}")
+                
                 # OCR処理実行
                 result = extractor.process_pdf(temp_file_path, enhancement_level)
+                
+                if show_progress:
+                    file_status.text("🤖 AI校正処理中...")
+                    file_progress.progress(0.7)
                 
                 # 結果を整理
                 processed_result = {
@@ -187,8 +217,39 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
                 
                 results.append(processed_result)
                 
+                if show_progress:
+                    file_status.text("✅ 処理完了!")
+                    file_progress.progress(1.0)
+                    step_status.text(f"抽出語数: {processed_result['extraction_results']['total_words']}, "
+                                   f"信頼度: {processed_result['file_info']['ocr_confidence']:.3f}")
+                    
+                    # expanderのタイトルを更新
+                    file_expander.empty()
+                    with progress_container:
+                        completed_expander = st.expander(
+                            f"✅ {uploaded_file.name} - 完了 "
+                            f"({processed_result['extraction_results']['total_words']}語抽出)", 
+                            expanded=False
+                        )
+                        with completed_expander:
+                            st.success(f"📊 処理結果: {processed_result['extraction_results']['total_words']}語, "
+                                     f"信頼度: {processed_result['file_info']['ocr_confidence']:.3f}")
+                
             except Exception as e:
                 st.error(f"❌ {uploaded_file.name}の処理中にエラーが発生しました: {str(e)}")
+                
+                if show_progress:
+                    file_status.text("❌ エラー発生")
+                    file_progress.progress(1.0)
+                    step_status.text(f"エラー: {str(e)}")
+                    
+                    # expanderのタイトルを更新
+                    file_expander.empty()
+                    with progress_container:
+                        error_expander = st.expander(f"❌ {uploaded_file.name} - エラー", expanded=True)
+                        with error_expander:
+                            st.error(f"🚨 エラー内容: {str(e)}")
+                
                 results.append({
                     'file_info': {
                         'source_file': uploaded_file.name,
@@ -203,8 +264,24 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
                 os.unlink(temp_file_path)
         
         if show_progress:
-            progress_bar.progress(1.0)
-            status_text.text("処理完了！")
+            overall_progress.progress(1.0)
+            overall_status.text("🎉 全ての処理が完了しました！")
+            
+            # 完了サマリー
+            st.markdown("### 📈 処理完了サマリー")
+            successful_count = len([r for r in results if not r['file_info'].get('error')])
+            total_words = sum(r['extraction_results'].get('total_words', 0) for r in results)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("成功ファイル数", f"{successful_count}/{len(results)}")
+            with col2:
+                st.metric("総抽出語数", total_words)
+            with col3:
+                avg_confidence = sum(r['file_info'].get('ocr_confidence', 0) 
+                                   for r in results if r['file_info'].get('ocr_confidence', 0) > 0)
+                avg_confidence = avg_confidence / max(successful_count, 1)
+                st.metric("平均信頼度", f"{avg_confidence:.3f}")
         
         # 結果をセッションステートに保存
         st.session_state.results = results
