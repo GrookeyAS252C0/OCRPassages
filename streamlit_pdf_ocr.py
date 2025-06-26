@@ -118,15 +118,6 @@ with col2:
     show_passages = st.checkbox("英語文章を表示", value=True)
     include_stats = st.checkbox("詳細統計を含める", value=True)
 
-# 処理実行ボタン
-if uploaded_files:
-    if st.button("🚀 OCR処理を開始", type="primary", use_container_width=True):
-        process_files(uploaded_files, enhancement_level, show_progress, show_word_list, show_passages, include_stats)
-
-# 処理結果表示エリア
-if 'results' in st.session_state:
-    display_results(st.session_state.results, show_word_list, show_passages, include_stats)
-
 def process_files(uploaded_files, enhancement_level, show_progress, show_word_list, show_passages, include_stats):
     """
     アップロードされたPDFファイルを処理
@@ -357,6 +348,15 @@ def create_zip_download(results):
     
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
+
+# 処理実行ボタン
+if uploaded_files:
+    if st.button("🚀 OCR処理を開始", type="primary", use_container_width=True):
+        process_files(uploaded_files, enhancement_level, show_progress, show_word_list, show_passages, include_stats)
+
+# 処理結果表示エリア
+if 'results' in st.session_state:
+    display_results(st.session_state.results, show_word_list, show_passages, include_stats)
 
 # フッター
 st.markdown("---")
