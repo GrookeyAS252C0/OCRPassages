@@ -270,8 +270,17 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
                 if show_progress:
                     file_status.text("✅ 処理完了!")
                     file_progress.progress(1.0)
+                    # トークン使用量表示
+                    token_usage = result.get('token_usage', {})
+                    input_tokens = token_usage.get('total_input_tokens', 0)
+                    output_tokens = token_usage.get('total_output_tokens', 0)
+                    cost_usd = token_usage.get('total_cost_usd', 0.0)
+                    
                     step_status.text(f"抽出語数: {processed_result['extraction_results']['total_words']}, "
                                    f"信頼度: {processed_result['file_info']['ocr_confidence']:.3f}")
+                    
+                    if input_tokens > 0 or output_tokens > 0:
+                        step_status.text(f"💰 トークン: {input_tokens + output_tokens:,} (${cost_usd:.4f})")
                     
                     # expanderのタイトルを更新
                     file_expander.empty()
@@ -322,7 +331,13 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
             successful_count = len([r for r in results if not r['file_info'].get('error')])
             total_words = sum(r['extraction_results'].get('total_words', 0) for r in results)
             
-            col1, col2, col3 = st.columns(3)
+            # トークン使用量合計計算
+            total_input_tokens = sum(r.get('token_usage', {}).get('total_input_tokens', 0) for r in results)
+            total_output_tokens = sum(r.get('token_usage', {}).get('total_output_tokens', 0) for r in results)
+            total_cost = sum(r.get('token_usage', {}).get('total_cost_usd', 0.0) for r in results)
+            total_api_calls = sum(r.get('token_usage', {}).get('api_calls', 0) for r in results)
+            
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("成功ファイル数", f"{successful_count}/{len(results)}")
             with col2:
@@ -332,6 +347,19 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
                                    for r in results if r['file_info'].get('ocr_confidence', 0) > 0)
                 avg_confidence = avg_confidence / max(successful_count, 1)
                 st.metric("平均信頼度", f"{avg_confidence:.3f}")
+            with col4:
+                st.metric("API料金", f"${total_cost:.4f}")
+            
+            # トークン使用詳細
+            if total_input_tokens > 0 or total_output_tokens > 0:
+                st.markdown("### 💰 OpenAI API使用量詳細")
+                token_col1, token_col2, token_col3 = st.columns(3)
+                with token_col1:
+                    st.metric("入力トークン", f"{total_input_tokens:,}")
+                with token_col2:
+                    st.metric("出力トークン", f"{total_output_tokens:,}")
+                with token_col3:
+                    st.metric("API呼び出し回数", total_api_calls)
         
         # 結果をセッションステートに保存
         st.session_state.results = results
@@ -378,13 +406,17 @@ def display_results(results, show_word_list, show_passages, include_stats):
                 continue
             
             # 基本情報
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("抽出単語数", result['extraction_results'].get('total_words', 0))
             with col2:
                 st.metric("ユニーク単語数", result['extraction_results'].get('unique_words', 0))
             with col3:
                 st.metric("OCR信頼度", f"{result['file_info'].get('ocr_confidence', 0):.3f}")
+            with col4:
+                token_usage = result.get('token_usage', {})
+                cost = token_usage.get('total_cost_usd', 0.0)
+                st.metric("API料金", f"${cost:.4f}" if cost > 0 else "なし")
             
             # 詳細統計
             if include_stats:
@@ -393,9 +425,18 @@ def display_results(results, show_word_list, show_passages, include_stats):
                 with stats_col1:
                     st.write(f"- 処理ページ数: {result['file_info'].get('processed_pages', 0)}")
                     st.write(f"- 処理レベル: {result['file_info'].get('processing_level', 'N/A')}")
+                    # トークン情報
+                    token_usage = result.get('token_usage', {})
+                    if token_usage.get('total_input_tokens', 0) > 0:
+                        st.write(f"- 入力トークン: {token_usage.get('total_input_tokens', 0):,}")
+                        st.write(f"- 出力トークン: {token_usage.get('total_output_tokens', 0):,}")
                 with stats_col2:
                     st.write(f"- OCR試行回数: {result['extraction_results'].get('ocr_attempts', 0)}")
                     st.write(f"- 成功抽出数: {result['extraction_results'].get('successful_extractions', 0)}")
+                    # API情報
+                    if token_usage.get('api_calls', 0) > 0:
+                        st.write(f"- API呼び出し: {token_usage.get('api_calls', 0)}回")
+                        st.write(f"- 料金: ${token_usage.get('total_cost_usd', 0.0):.4f}")
             
             # 英語文章表示
             if show_passages and result['content'].get('english_passages'):

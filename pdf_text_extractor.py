@@ -79,6 +79,14 @@ class PDFTextExtractor:
         
         self.english_stopwords = set(stopwords.words('english'))
         
+        # トークン使用量追跡
+        self.token_usage = {
+            'total_input_tokens': 0,
+            'total_output_tokens': 0,
+            'total_cost_usd': 0.0,
+            'api_calls': 0
+        }
+        
     def preprocess_image(self, image: Image.Image, enhancement_level: str = "standard") -> List[Image.Image]:
         """
         OCR前の高度な画像前処理（複数バリエーション生成）
@@ -300,6 +308,27 @@ class PDFTextExtractor:
         
         return min(score, 1.0)
     
+    def _record_token_usage(self, usage):
+        """
+        OpenAI APIのトークン使用量を記録
+        
+        Args:
+            usage: OpenAI APIレスポンスのusageオブジェクト
+        """
+        if hasattr(usage, 'prompt_tokens'):
+            self.token_usage['total_input_tokens'] += usage.prompt_tokens
+        if hasattr(usage, 'completion_tokens'):
+            self.token_usage['total_output_tokens'] += usage.completion_tokens
+        
+        self.token_usage['api_calls'] += 1
+        
+        # GPT-4o-miniの料金計算 (2024年12月現在)
+        # Input: $0.00015 per 1K tokens
+        # Output: $0.0006 per 1K tokens
+        input_cost = (self.token_usage['total_input_tokens'] / 1000) * 0.00015
+        output_cost = (self.token_usage['total_output_tokens'] / 1000) * 0.0006
+        self.token_usage['total_cost_usd'] = input_cost + output_cost
+    
     def detect_text_regions(self, image: Image.Image) -> List[tuple]:
         """
         画像内のテキスト領域を検出
@@ -497,6 +526,10 @@ CORRECTED ENGLISH TEXT:"""
             
             corrected_text = response.choices[0].message.content.strip()
             
+            # トークン使用量を記録
+            if hasattr(response, 'usage') and response.usage:
+                self._record_token_usage(response.usage)
+            
             # 基本的な後処理
             corrected_text = self._post_process_corrected_text(corrected_text)
             
@@ -609,6 +642,10 @@ PURE ENGLISH OUTPUT:"""
             )
             
             pure_english = response.choices[0].message.content.strip()
+            
+            # トークン使用量を記録
+            if hasattr(response, 'usage') and response.usage:
+                self._record_token_usage(response.usage)
             
             # 厳格な後処理で日本語を完全除去
             pure_english = self._strict_english_filter(pure_english)
@@ -781,6 +818,12 @@ PURE ENGLISH OUTPUT:"""
                 'average_confidence': 0.0,
                 'enhancement_level': enhancement_level
             },
+            'token_usage': {
+                'total_input_tokens': 0,
+                'total_output_tokens': 0,
+                'total_cost_usd': 0.0,
+                'api_calls': 0
+            },
             'error': None
         }
         
@@ -850,6 +893,9 @@ PURE ENGLISH OUTPUT:"""
             # 統計情報更新
             if confidence_scores:
                 result['processing_stats']['average_confidence'] = sum(confidence_scores) / len(confidence_scores)
+            
+            # トークン使用量を結果に追加
+            result['token_usage'] = self.token_usage.copy()
         
         except Exception as e:
             logger.error(f"PDF処理エラー: {pdf_path} - {e}")
