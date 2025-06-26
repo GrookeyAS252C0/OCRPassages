@@ -83,6 +83,24 @@ level_descriptions = {
 }
 st.sidebar.markdown(f"**{enhancement_level}**: {level_descriptions[enhancement_level]}")
 
+st.sidebar.markdown("### 🤖 AI校正設定")
+st.sidebar.info("""
+**モデル**: GPT-4o-mini  
+**機能**: 
+- OCR結果の自動校正
+- 日本語コンテンツ除去
+- 純粋英語テキスト抽出
+- 文法・スペル修正
+""")
+
+st.sidebar.markdown("### 📋 処理仕様")
+st.sidebar.markdown("""
+- **解像度**: 300 DPI変換
+- **前処理**: 6種類の画像強化
+- **OCR**: Tesseract + AI校正
+- **出力**: JSON/TXT/ZIP形式
+""")
+
 # OpenAI API設定チェック
 if "OPENAI_API_KEY" in st.secrets:
     api_key = st.secrets["OPENAI_API_KEY"]
@@ -153,7 +171,21 @@ with col2:
 def process_files(uploaded_files, enhancement_level, show_progress, show_word_list, show_passages, include_stats):
     """
     アップロードされたPDFファイルを処理
+    
+    Args:
+        uploaded_files: アップロードされたPDFファイルのリスト
+        enhancement_level: OCR処理レベル
+        show_progress: 進捗表示フラグ
+        show_word_list: 単語リスト表示フラグ（結果表示で使用）
+        show_passages: 英語文章表示フラグ（結果表示で使用）
+        include_stats: 詳細統計表示フラグ（結果表示で使用）
     """
+    # 表示オプションをセッションステートに保存（結果表示時に使用）
+    st.session_state.display_options = {
+        'show_word_list': show_word_list,
+        'show_passages': show_passages,
+        'include_stats': include_stats
+    }
     try:
         # PDFTextExtractorを初期化
         extractor = PDFTextExtractor()
@@ -465,7 +497,18 @@ if uploaded_files:
 
 # 処理結果表示エリア
 if 'results' in st.session_state:
-    display_results(st.session_state.results, show_word_list, show_passages, include_stats)
+    # 表示オプションをセッションステートから取得、デフォルト値を設定
+    display_options = st.session_state.get('display_options', {
+        'show_word_list': True,
+        'show_passages': True,
+        'include_stats': True
+    })
+    display_results(
+        st.session_state.results, 
+        display_options['show_word_list'],
+        display_options['show_passages'],
+        display_options['include_stats']
+    )
 
 # フッター
 st.markdown("---")
