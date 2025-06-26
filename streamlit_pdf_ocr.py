@@ -83,29 +83,47 @@ level_descriptions = {
 }
 st.sidebar.markdown(f"**{enhancement_level}**: {level_descriptions[enhancement_level]}")
 
-# OpenAI API設定
-st.sidebar.markdown("### OpenAI API設定")
-
-# Streamlit SecretsからAPIキーを取得
-api_key = None
+# OpenAI API設定チェック
 if "OPENAI_API_KEY" in st.secrets:
     api_key = st.secrets["OPENAI_API_KEY"]
     os.environ['OPENAI_API_KEY'] = api_key
-    st.sidebar.success("✅ API Key (Secrets)設定済み")
-else:
-    # Secretsにない場合は手動入力
-    api_key = st.sidebar.text_input(
-        "OpenAI API Key",
-        type="password",
-        help="OCR結果の校正に使用されます。Streamlit CloudのSecretsに設定することを推奨します。"
-    )
     
-    if api_key:
-        os.environ['OPENAI_API_KEY'] = api_key
-        st.sidebar.success("✅ API Key設定完了")
-
-if not api_key:
-    st.sidebar.warning("⚠️ OpenAI API Keyが未設定です。基本的なOCRのみ実行されます。")
+    # APIキー接続テスト
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        # 簡単なAPI接続テスト
+        client.models.list()
+        st.sidebar.success("✅ OpenAI API接続確認済み")
+    except Exception as e:
+        st.sidebar.error("❌ OpenAI API接続エラー")
+        st.error(f"""
+        🚨 **OpenAI API接続エラー**
+        
+        エラー内容: {str(e)}
+        
+        **対処方法:**
+        1. Streamlit CloudのSecretsでAPIキーを確認
+        2. APIキーが正しい形式か確認
+        3. OpenAIアカウントの残高を確認
+        """)
+        st.stop()
+else:
+    st.sidebar.error("❌ OpenAI API Key未設定")
+    st.error("""
+    🚨 **OpenAI API Keyが設定されていません**
+    
+    **設定方法:**
+    1. Streamlit Cloud → Settings → Secrets
+    2. 以下を追加:
+    ```
+    OPENAI_API_KEY = "your-api-key-here"
+    ```
+    3. アプリを再起動
+    
+    詳細は `SECRETS_SETUP.md` を参照してください。
+    """)
+    st.stop()
 
 # メインコンテンツ
 col1, col2 = st.columns([1, 1])
