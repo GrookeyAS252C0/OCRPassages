@@ -85,15 +85,27 @@ st.sidebar.markdown(f"**{enhancement_level}**: {level_descriptions[enhancement_l
 
 # OpenAI API設定
 st.sidebar.markdown("### OpenAI API設定")
-api_key = st.sidebar.text_input(
-    "OpenAI API Key",
-    type="password",
-    help="OCR結果の校正に使用されます。設定しなくても基本的なOCRは実行されます。"
-)
 
-if api_key:
+# Streamlit SecretsからAPIキーを取得
+api_key = None
+if "OPENAI_API_KEY" in st.secrets:
+    api_key = st.secrets["OPENAI_API_KEY"]
     os.environ['OPENAI_API_KEY'] = api_key
-    st.sidebar.success("API Key設定完了")
+    st.sidebar.success("✅ API Key (Secrets)設定済み")
+else:
+    # Secretsにない場合は手動入力
+    api_key = st.sidebar.text_input(
+        "OpenAI API Key",
+        type="password",
+        help="OCR結果の校正に使用されます。Streamlit CloudのSecretsに設定することを推奨します。"
+    )
+    
+    if api_key:
+        os.environ['OPENAI_API_KEY'] = api_key
+        st.sidebar.success("✅ API Key設定完了")
+
+if not api_key:
+    st.sidebar.warning("⚠️ OpenAI API Keyが未設定です。基本的なOCRのみ実行されます。")
 
 # メインコンテンツ
 col1, col2 = st.columns([1, 1])

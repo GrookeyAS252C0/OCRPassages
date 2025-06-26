@@ -35,10 +35,21 @@ class PDFTextExtractor:
         # 環境変数から設定を読み込み
         load_dotenv()
         
+        # OpenAI APIキー設定の優先順位
         if openai_api_key:
+            # 1. 直接指定されたAPIキー
             openai.api_key = openai_api_key
         elif os.getenv('OPENAI_API_KEY'):
+            # 2. 環境変数（Streamlit Secretsを含む）
             openai.api_key = os.getenv('OPENAI_API_KEY')
+        else:
+            # 3. Streamlit Secretsを直接確認（import可能な場合）
+            try:
+                import streamlit as st
+                if hasattr(st, 'secrets') and "OPENAI_API_KEY" in st.secrets:
+                    openai.api_key = st.secrets["OPENAI_API_KEY"]
+            except:
+                pass
         
         # NLTK データのダウンロード
         try:
