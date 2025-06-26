@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime
 import io
 import zipfile
+import time
 
 # Streamlit Cloud環境でのNLTKデータダウンロード
 try:
@@ -186,11 +187,29 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
         'show_passages': show_passages,
         'include_stats': include_stats
     }
+    
+    # デバッグ情報表示
+    st.write("🔍 **デバッグ情報**")
+    debug_container = st.empty()
+    error_container = st.empty()
+    
+    def log_debug(message):
+        debug_container.text(f"[DEBUG] {message}")
+    
+    def log_error(message, error=None):
+        error_msg = f"[ERROR] {message}"
+        if error:
+            error_msg += f" - {str(error)}"
+        error_container.error(error_msg)
+        print(error_msg)  # サーバーログにも出力
     try:
+        log_debug("PDFTextExtractorを初期化中...")
         # PDFTextExtractorを初期化
         extractor = PDFTextExtractor()
+        log_debug("PDFTextExtractor初期化完了")
         
         results = []
+        log_debug(f"処理対象ファイル数: {len(uploaded_files)}")
         
         # 全体プログレスバー
         if show_progress:
@@ -202,6 +221,8 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
             progress_container = st.container()
         
         for i, uploaded_file in enumerate(uploaded_files):
+            log_debug(f"ファイル {i+1}/{len(uploaded_files)} 処理開始: {uploaded_file.name}")
+            
             if show_progress:
                 # 全体進捗更新
                 overall_progress.progress(i / len(uploaded_files))
@@ -219,23 +240,29 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
                         file_status.text("🔄 PDFファイル読み込み中...")
                         file_progress.progress(0.1)
             
-            # 一時ファイルに保存
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-                temp_file.write(uploaded_file.read())
-                temp_file_path = temp_file.name
-            
-            if show_progress:
-                file_status.text("💾 ファイル保存完了")
-                file_progress.progress(0.2)
-            
             try:
+                log_debug(f"一時ファイル作成: {uploaded_file.name}")
+                # 一時ファイルに保存
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                    file_data = uploaded_file.read()
+                    log_debug(f"ファイルサイズ: {len(file_data)} bytes")
+                    temp_file.write(file_data)
+                    temp_file_path = temp_file.name
+                log_debug(f"一時ファイル保存完了: {temp_file_path}")
+                
+                if show_progress:
+                    file_status.text("💾 ファイル保存完了")
+                    file_progress.progress(0.2)
+            
                 if show_progress:
                     file_status.text("🔍 OCR処理開始...")
                     file_progress.progress(0.3)
                     step_status.text(f"処理レベル: {enhancement_level}")
                 
+                log_debug(f"OCR処理開始: {enhancement_level}")
                 # OCR処理実行
                 result = extractor.process_pdf(temp_file_path, enhancement_level)
+                log_debug(f"OCR処理完了: {uploaded_file.name}")
                 
                 if show_progress:
                     file_status.text("🤖 AI校正処理中...")
@@ -295,32 +322,60 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
                                      f"信頼度: {processed_result['file_info']['ocr_confidence']:.3f}")
                 
             except Exception as e:
-                st.error(f"❌ {uploaded_file.name}の処理中にエラーが発生しました: {str(e)}")
+                error_type = type(e).__name__
+                error_message = str(e)
+                log_error(f"{uploaded_file.name}の処理中にエラー発生: {error_type}", e)
+                
+                # 詳細なエラー情報を取得
+                import traceback
+                error_traceback = traceback.format_exc()
+                log_debug(f"エラートレースバック:\n{error_traceback}")
+                
+                st.error(f"❌ {uploaded_file.name}の処理中にエラーが発生しました: {error_message}")
                 
                 if show_progress:
                     file_status.text("❌ エラー発生")
                     file_progress.progress(1.0)
-                    step_status.text(f"エラー: {str(e)}")
+                    step_status.text(f"エラー: {error_type}")
                     
                     # expanderのタイトルを更新
                     file_expander.empty()
                     with progress_container:
                         error_expander = st.expander(f"❌ {uploaded_file.name} - エラー", expanded=True)
                         with error_expander:
-                            st.error(f"🚨 エラー内容: {str(e)}")
+                            st.error(f"🚨 エラー内容: {error_message}")
+                            st.code(f"エラータイプ: {error_type}")
                 
                 results.append({
                     'file_info': {
                         'source_file': uploaded_file.name,
-                        'error': str(e)
+                        'error': error_message,
+                        'error_type': error_type
                     },
                     'extraction_results': {},
                     'content': {}
                 })
             
+            except Exception as inner_e:
+                log_error(f"ファイル {uploaded_file.name} の内部処理エラー", inner_e)
+                # 内部エラーもresultsに追加
+                results.append({
+                    'file_info': {
+                        'source_file': uploaded_file.name,
+                        'error': f"内部処理エラー: {str(inner_e)}",
+                        'error_type': type(inner_e).__name__
+                    },
+                    'extraction_results': {},
+                    'content': {}
+                })
             finally:
                 # 一時ファイルを削除
-                os.unlink(temp_file_path)
+                try:
+                    if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                        log_debug(f"一時ファイル削除: {temp_file_path}")
+                except Exception as cleanup_error:
+                    log_error(f"一時ファイル削除エラー: {temp_file_path}", cleanup_error)
         
         if show_progress:
             overall_progress.progress(1.0)
@@ -366,11 +421,28 @@ def process_files(uploaded_files, enhancement_level, show_progress, show_word_li
         
         # 成功メッセージ
         successful_files = [r for r in results if not r['file_info'].get('error')]
+        failed_files = [r for r in results if r['file_info'].get('error')]
+        
+        log_debug(f"処理完了: 成功 {len(successful_files)}, 失敗 {len(failed_files)}")
+        
         if successful_files:
             st.markdown('<div class="success-box">✅ 処理が完了しました！</div>', unsafe_allow_html=True)
         
+        if failed_files:
+            st.warning(f"⚠️ {len(failed_files)}個のファイルでエラーが発生しました")
+        
     except Exception as e:
+        import traceback
+        main_error_traceback = traceback.format_exc()
+        log_error("メイン処理でエラー発生", e)
+        log_debug(f"メインエラートレースバック:\n{main_error_traceback}")
+        
         st.markdown(f'<div class="error-box">❌ 処理中にエラーが発生しました: {str(e)}</div>', unsafe_allow_html=True)
+        st.code(f"エラータイプ: {type(e).__name__}")
+        
+        # エラー詳細を展開可能な形で表示
+        with st.expander("🔍 エラー詳細情報", expanded=False):
+            st.code(main_error_traceback)
 
 def display_results(results, show_word_list, show_passages, include_stats):
     """
