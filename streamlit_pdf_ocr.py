@@ -6,6 +6,17 @@ from pathlib import Path
 from datetime import datetime
 import io
 import zipfile
+
+# Streamlit Cloud環境でのNLTKデータダウンロード
+try:
+    import nltk
+    nltk.download('punkt', quiet=True)
+    nltk.download('stopwords', quiet=True)
+    nltk.download('wordnet', quiet=True)
+    nltk.download('averaged_perceptron_tagger', quiet=True)
+except:
+    pass
+
 from pdf_text_extractor import PDFTextExtractor
 
 # ページ設定
